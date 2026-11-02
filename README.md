@@ -11,6 +11,15 @@
 2. **Great Expectations** — проверки качества (NULL, диапазоны, уникальность).
 3. **GitHub Actions** — CI/CD (при каждом пуше: dbt run → GX checks).
 
+## Архитектура
+
+```mermaid
+graph LR
+    A[dbt: sales_summary.sql] -->|dbt run| B[PostgreSQL: sales_summary]
+    B -->|Great Expectations| C[GX: проверки качества]
+    C -->|GitHub Actions| D[CI/CD: автоматизация]
+```
+
 ## Что реализовано
 
 - **dbt-модель** `sales_summary.sql`: агрегация продаж по дням (количество заказов и выручка).
