@@ -1,0 +1,100 @@
+name: dbt + Great Expectations CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dbt-gx:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: dwh_user
+          POSTGRES_PASSWORD: dwh_password
+          POSTGRES_DB: dwh_marketplace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install dbt-postgres great_expectations psycopg2-binary pandas sqlalchemy
+
+    - name: Create dbt profiles.yml
+      run: |
+        mkdir -p ~/.dbt
+        cat > ~/.dbt/profiles.yml <<EOF
+        dbt_gx_demo:
+          outputs:
+            dev:
+              dbname: dwh_marketplace
+              host: localhost
+              pass: dwh_password
+              port: 5432
+              schema: dbt_gx_demo
+              threads: 1
+              type: postgres
+              user: dwh_user
+          target: dev
+        EOF
+
+    - name: Create test table fct_sales
+      run: |
+        python -c "
+        import psycopg2
+        conn = psycopg2.connect(host='localhost', port=5432, dbname='dwh_marketplace', user='dwh_user', password='dwh_password')
+        cur = conn.cursor()
+        cur.execute('CREATE SCHEMA IF NOT EXISTS dbt_schema;')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS dbt_schema.fct_sales (
+                invoice_no VARCHAR(50),
+                stock_code VARCHAR(50),
+                customer_id INT,
+                order_date DATE,
+                total_quantity BIGINT,
+                total_revenue NUMERIC
+            );
+        ''')
+        cur.execute('''
+            INSERT INTO dbt_schema.fct_sales VALUES
+            ('INV001', 'STK001', 1, '2026-10-01', 2, 100.50),
+            ('INV002', 'STK002', 2, '2026-10-02', 1, 50.25);
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+        print('Test table created.')
+        "
+
+    - name: Run dbt deps
+      run: |
+        cd dbt_project
+        dbt deps
+
+    - name: Run dbt run
+      run: |
+        cd dbt_project
+        dbt run
+
+    - name: Run Great Expectations checks
+      run: |
+        cd gx_checks
+        python run_gx_checks.py
